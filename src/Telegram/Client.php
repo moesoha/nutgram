@@ -176,6 +176,57 @@ trait Client
     }
 
     /**
+     * @param mixed $value
+     * @return InputFile[]
+     */
+    protected static function collectUploadables(mixed $value): array
+    {
+        if ($value instanceof InputFile) {
+            return [$value];
+        }
+
+        $items = match (true) {
+            $value instanceof UploadableArray => $value->files,
+            $value instanceof Uploadables => array_map(
+                static fn (string $field) => $value->{$field} ?? null,
+                $value->uploadables()
+            ),
+            is_array($value) => $value,
+            default => [],
+        };
+
+        $files = [];
+        foreach ($items as $item) {
+            array_push($files, ...self::collectUploadables($item));
+        }
+
+        return $files;
+    }
+
+    /**
+     * @param string $endpoint
+     * @param array $parameters
+     * @param string $mapTo
+     * @param array $clientOpt
+     * @return mixed
+     * @throws GuzzleException
+     * @throws JsonException
+     * @throws TelegramException
+     */
+    protected function requestJsonOrMultipart(
+        string $endpoint,
+        array $parameters = [],
+        string $mapTo = UnknownType::class,
+        array $clientOpt = []
+    ): mixed {
+        if (self::collectUploadables($parameters) === []) {
+            return $this->requestJson($endpoint, $parameters, $mapTo, $clientOpt);
+        }
+
+        return $this->requestMultipart($endpoint, $parameters, $mapTo, $clientOpt);
+    }
+
+    /**
      * @param string $endpoint
      * @param array $multipart
      * @param string $mapTo
@@ -193,20 +244,15 @@ trait Client
     ): mixed {
         $parameters = [];
         foreach (array_filter_null($multipart) as $name => $contents) {
-            if ($contents instanceof UploadableArray || $contents instanceof Uploadables) {
-                $files = $contents instanceof UploadableArray ? $contents->files : [$contents];
-                foreach ($files as $file) {
-                    if ($file instanceof Uploadables) {
-                        foreach ($file->uploadables() as $field) {
-                            if ($file->{$field} instanceof InputFile) {
-                                $parameters[] = [
-                                    'name' => $file->{$field}->getFilename(),
-                                    'contents' => $file->{$field}->getResource(),
-                                    'filename' => $file->{$field}->getFilename(),
-                                ];
-                            }
-                        }
-                    }
+            // files nested inside the parameter are sent as separate parts,
+            // referenced by the parameter itself through "attach://<filename>"
+            if (!$contents instanceof InputFile) {
+                foreach (self::collectUploadables($contents) as $file) {
+                    $parameters[] = [
+                        'name' => $file->getFilename(),
+                        'contents' => $file->getResource(),
+                        'filename' => $file->getFilename(),
+                    ];
                 }
             }
 

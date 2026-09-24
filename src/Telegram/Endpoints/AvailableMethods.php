@@ -259,7 +259,7 @@ trait AvailableMethods
             );
         }
 
-        return $this->requestJson(__FUNCTION__, $parameters, Message::class);
+        return $this->requestJsonOrMultipart(__FUNCTION__, $parameters, Message::class);
     }
 
     /**
@@ -1757,9 +1757,11 @@ trait AvailableMethods
         $parameters['chat_id'] ??= $this->chatId();
         $parameters['message_thread_id'] ??= $this->messageThreadId();
         $parameters['business_connection_id'] ??= $this->businessConnectionId();
-        $parameters['options'] = json_encode($options, JSON_THROW_ON_ERROR);
+        $parameters['options'] = self::collectUploadables($options) === []
+            ? json_encode($options, JSON_THROW_ON_ERROR)
+            : $options;
 
-        return $this->requestJson(__FUNCTION__, $parameters, Message::class);
+        return $this->requestJsonOrMultipart(__FUNCTION__, $parameters, Message::class);
     }
 
     /**
